@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "diea.social-switch",
+  "name": "Social Switch",
+  "version": "1.1.0",
+  "author": "Diea Abdeltwab",
+  "license": "MIT",
+  "description": "Block or unblock social media system-wide via /etc/hosts - a master switch plus one tile per platform - from a popup on the Omarchy bar.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "Widget.qml"
+  },
+  "barWidget": {
+    "displayName": "Social Switch",
+    "category": "Network",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+
+  <vendor>Diea Abdeltwab</vendor>
+  <vendor_url>https://github.com/diea-abdeltwab/social-switch-widget</vendor_url>
+
+  <!--
+    One action for the whole script rather than one per subcommand.
+    social-switch itself enforces which subcommands actually need root
+    (require_root) and validates every platform name against a fixed
+    table (is_valid_platform), so scoping polkit any tighter than "may
+    run this specific, already-installed script" wouldn't add real
+    protection — it would just move the same trust boundary one file
+    over. What this DOES buy over a blanket sudoers NOPASSWD rule:
+      - the prompt names this action, not "run any command as root"
+      - every desktop's own polkit agent (GNOME Shell, KDE, Quattro's
+        Quickshell agent, ...) renders it themed, instead of a generic
+        terminal prompt
+      - auth_admin_keep means one password unlocks a short grace
+        window, so tapping a toggle and then a platform icon a few
+        seconds later doesn't re-prompt twice
+  -->
+  <action id="com.diea.socialswitch.run">
+    <description>Change social media blocking status</description>
+    <message>Authentication is required to change which sites are blocked in /etc/hosts</message>
+    <icon_name>network-workgroup</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/social-switch</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+
+</policyconfig>

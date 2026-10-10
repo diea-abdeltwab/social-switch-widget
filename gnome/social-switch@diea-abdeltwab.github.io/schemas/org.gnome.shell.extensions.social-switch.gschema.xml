@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.social-switch" path="/org/gnome/shell/extensions/social-switch/">
+
+    <key name="panel-position" type="s">
+      <default>'right'</default>
+      <summary>Where the indicator sits in the top bar</summary>
+      <description>'left', 'center' or 'right'.</description>
+    </key>
+
+    <key name="show-label" type="b">
+      <default>true</default>
+      <summary>Show ON / OFF / count next to the lock icon</summary>
+      <description>ON = social media allowed, OFF = blocked, "n/12" = some platforms blocked.</description>
+    </key>
+
+    <key name="show-dns-row" type="b">
+      <default>false</default>
+      <summary>Show a Cloudflare DNS filter switch in the popup</summary>
+      <description>Needs the cloudflare-switch tool (installed together with social-switch). Off by default.</description>
+    </key>
+
+  </schema>
+</schemalist>

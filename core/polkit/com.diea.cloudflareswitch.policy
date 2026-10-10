@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!--
+  polkit action for the optional DNS-filter switch in the desktop front ends.
+
+  Like com.diea.socialswitch.run it authorises ONE absolute path, not a
+  sudoers rule: `pkexec /usr/local/bin/cloudflare-switch on|off`.
+  auth_admin_keep = one password covers a short grace window.
+-->
+<policyconfig>
+  <vendor>Diea Abdeltwab</vendor>
+  <vendor_url>https://github.com/diea-abdeltwab/social-switch-widget</vendor_url>
+
+  <action id="com.diea.cloudflareswitch.run">
+    <description>Change the Cloudflare DNS filter</description>
+    <message>Authentication is required to turn the Cloudflare DNS filter on or off</message>
+    <icon_name>network-wired</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/cloudflare-switch</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+</policyconfig>

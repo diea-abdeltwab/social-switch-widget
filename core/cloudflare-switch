@@ -1,0 +1,628 @@
+#!/usr/bin/env bash
+#
+# cloudflare-switch  (v2.0)
+#
+# Turns a Cloudflare DNS filter on/off for the whole machine, on ANY Linux:
+#
+#   on  [family|malware|standard]   use Cloudflare DNS (default: family, 1.1.1.3)
+#   off                             go back to the DNS you had before
+#   status [--json|--short]         what is configured, and is it really in effect
+#   sync                            re-apply the saved state (new Wi-Fi profiles, ...)
+#   doctor                          diagnose conflicts and leftovers
+#
+# Presets:  family   1.1.1.3 / 1.0.0.3   blocks malware + adult content
+#           malware  1.1.1.2 / 1.0.0.2   blocks malware only
+#           standard 1.1.1.1 / 1.0.0.1   no filtering
+#
+# Backends (auto-detected, in this order; override with --backend NAME):
+#   nm          NetworkManager      - edits the saved connection profiles
+#                                     (Fedora, Ubuntu, Debian, Mint, openSUSE ... desktops)
+#   resolved    systemd-resolved    - one drop-in file in resolved.conf.d
+#                                     (Arch, Omarchy, servers using systemd-networkd)
+#   resolvconf  plain /etc/resolv.conf (Alpine, Void, minimal installs)
+#
+# Design rules:
+#   * Declarative: "off" removes only what "on" added; it never edits files it
+#     does not own, so it cannot fight the distribution or other tools.
+#   * Safe: if DNS worked before "on" and stops working after, it rolls back.
+#   * It never touches /etc/hosts - that belongs to social-switch.
+#
+# Wording note: here "on" = the filter is ACTIVE. social-switch is the opposite
+# habit ("on" = social media allowed). `enable`/`disable` are accepted aliases.
+
+set -euo pipefail
+
+if [ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }; then
+    echo "cloudflare-switch needs bash >= 4.4 (found ${BASH_VERSION})." >&2
+    exit 1
+fi
+
+VERSION="2.0.0"
+PROG_NAME="$(basename "$0")"
+
+STATE_DIR="/etc/cloudflare-switch"
+DATA_DIR="/var/lib/cloudflare-switch"
+RESOLVED_DIR="/etc/systemd/resolved.conf.d"
+RESOLV_CONF="/etc/resolv.conf"
+LEGACY_UNIT="/etc/systemd/system/cloudflare-switch-restore.service"
+LOCK_DIR="/run"
+
+# Test hook: honoured ONLY for non-root users (see social-switch for why).
+TEST_MODE=0
+if [ -n "${CLOUDFLARE_SWITCH_TEST_ROOT:-}" ] && [ "$EUID" -ne 0 ]; then
+    TEST_MODE=1
+    R="$CLOUDFLARE_SWITCH_TEST_ROOT"
+    STATE_DIR="$R/etc/cloudflare-switch"
+    DATA_DIR="$R/var/lib/cloudflare-switch"
+    RESOLVED_DIR="$R/etc/systemd/resolved.conf.d"
+    RESOLV_CONF="$R/etc/resolv.conf"
+    LEGACY_UNIT="$R/etc/systemd/system/cloudflare-switch-restore.service"
+    LOCK_DIR="$R"
+fi
+
+STATE_FILE="$STATE_DIR/state"
+PRESET_FILE="$STATE_DIR/preset"
+BACKEND_FILE="$STATE_DIR/backend"
+DROPIN="$RESOLVED_DIR/90-cloudflare-switch.conf"
+RESOLV_ORIG="$DATA_DIR/resolv.conf.orig"
+NM_DATA="$DATA_DIR/nm"
+LOCK_FILE="$LOCK_DIR/cloudflare-switch.lock"
+
+# NetworkManager connection types we manage (never VPN, bridge, loopback, ...).
+NM_TYPES="802-3-ethernet 802-11-wireless gsm cdma pppoe"
+
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+    C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'; C_RESET=$'\033[0m'
+else
+    C_RED=""; C_GREEN=""; C_YELLOW=""; C_RESET=""
+fi
+
+die()  { echo "${C_RED}Error:${C_RESET} $*" >&2; exit 1; }
+warn() { echo "${C_YELLOW}Warning:${C_RESET} $*" >&2; }
+info() { echo "$*"; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# --- presets ---------------------------------------------------------------------
+
+PRESET_V4=""; PRESET_V6=""; PRESET_LABEL=""
+load_preset() {
+    case "$1" in
+        family)
+            PRESET_V4="1.1.1.3 1.0.0.3"
+            PRESET_V6="2606:4700:4700::1113 2606:4700:4700::1003"
+            PRESET_LABEL="Cloudflare Family (malware + adult content)" ;;
+        malware|security)
+            PRESET_V4="1.1.1.2 1.0.0.2"
+            PRESET_V6="2606:4700:4700::1112 2606:4700:4700::1002"
+            PRESET_LABEL="Cloudflare Security (malware)" ;;
+        standard|plain)
+            PRESET_V4="1.1.1.1 1.0.0.1"
+            PRESET_V6="2606:4700:4700::1111 2606:4700:4700::1001"
+            PRESET_LABEL="Cloudflare Standard (no filtering)" ;;
+        *) return 1 ;;
+    esac
+}
+canonical_preset() {
+    case "$1" in
+        family) echo family ;;
+        malware|security) echo malware ;;
+        standard|plain) echo standard ;;
+        *) echo "" ;;
+    esac
+}
+
+# --- small helpers ---------------------------------------------------------------
+
+need_root() {
+    if [ "$EUID" -eq 0 ] || [ "$TEST_MODE" -eq 1 ]; then
+        return 0
+    fi
+    have sudo || die "this command needs root and 'sudo' is not installed. Run it as root."
+    local self
+    self="$(readlink -f "$0")"
+    exec sudo -- "$BASH" "$self" "${ORIG_ARGS[@]}"
+}
+
+acquire_lock() {
+    mkdir -p "$(dirname "$LOCK_FILE")"
+    exec 9>"$LOCK_FILE"
+    have flock || return 0
+    flock -w 15 9 || die "another $PROG_NAME is running (lock: $LOCK_FILE)"
+}
+
+# Atomic write: temp file in the same directory, then rename.
+write_file() {
+    local path="$1" content="$2" tmp
+    mkdir -p "$(dirname "$path")"
+    tmp="$(mktemp "$path.tmp.XXXXXX")"
+    printf '%s\n' "$content" > "$tmp"
+    chmod 644 "$tmp"
+    mv -f "$tmp" "$path"
+}
+
+read_first_line() { [ -f "$1" ] && head -n 1 "$1" 2>/dev/null || true; }
+
+saved_state()  { local v; v="$(read_first_line "$STATE_FILE")"; [ "$v" = on ] && echo on || echo off; }
+saved_preset() { local v; v="$(canonical_preset "$(read_first_line "$PRESET_FILE")")"; echo "${v:-family}"; }
+
+flush_dns() {
+    have resolvectl && resolvectl flush-caches >/dev/null 2>&1 || true
+    have nscd && nscd -i hosts >/dev/null 2>&1 || true
+    return 0
+}
+
+# Does name resolution work at all right now?
+can_resolve() {
+    local d
+    for d in cloudflare.com example.com debian.org; do
+        if timeout 4 getent hosts "$d" >/dev/null 2>&1; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# --- backend detection --------------------------------------------------------------
+
+nm_running() {
+    have nmcli || return 1
+    [ "$(nmcli -t -f RUNNING general 2>/dev/null || true)" = "running" ]
+}
+resolved_running() {
+    have resolvectl || return 1
+    if have systemctl; then
+        systemctl is-active --quiet systemd-resolved 2>/dev/null
+    else
+        return 1
+    fi
+}
+
+BACKEND=""
+detect_backend() {
+    local forced="${1:-}"
+    if [ -z "$forced" ]; then
+        forced="$(read_first_line "$BACKEND_FILE")"
+    fi
+    case "$forced" in
+        nm)         nm_running       || die "backend 'nm' requested but NetworkManager is not running"; BACKEND="nm"; return ;;
+        resolved)   resolved_running || die "backend 'resolved' requested but systemd-resolved is not running"; BACKEND="resolved"; return ;;
+        resolvconf) BACKEND="resolvconf"; return ;;
+        auto|"")    ;;
+        *)          die "unknown backend '$forced' (use nm, resolved, resolvconf or auto)" ;;
+    esac
+    if nm_running; then BACKEND="nm"
+    elif resolved_running; then BACKEND="resolved"
+    else BACKEND="resolvconf"
+    fi
+}
+
+# =====================================================================================
+#  Backend: NetworkManager
+# =====================================================================================
+
+nm_profiles() {
+    local u t
+    nmcli -t -f UUID,TYPE connection show 2>/dev/null | while IFS=: read -r u t; do
+        case " $NM_TYPES " in *" $t "*) echo "$u" ;; esac
+    done
+}
+
+nm_get() {   # nm_get UUID PROPERTY -> comma separated, colons unescaped
+    nmcli -g "$2" connection show "$1" 2>/dev/null | head -n 1 | sed 's/\\:/:/g' || true
+}
+
+nm_active_device() {   # UUID -> device name of its active connection (or empty)
+    local u d
+    nmcli -t -f UUID,DEVICE connection show --active 2>/dev/null | while IFS=: read -r u d; do
+        if [ "$u" = "$1" ] && [ -n "$d" ] && [ "$d" != "--" ]; then echo "$d"; fi
+    done | head -n 1
+}
+
+nm_reload() {   # UUID
+    local dev
+    dev="$(nm_active_device "$1")"
+    [ -n "$dev" ] || return 0
+    nmcli device reapply "$dev" >/dev/null 2>&1 \
+        || nmcli connection up uuid "$1" >/dev/null 2>&1 \
+        || warn "could not re-apply DNS on $dev; reconnect the network to finish"
+}
+
+nm_save_orig() {   # UUID : remember the profile's own DNS settings, once
+    local f="$NM_DATA/$1"
+    [ -f "$f" ] && return 0
+    mkdir -p "$NM_DATA"
+    {
+        echo "ipv4.dns=$(nm_get "$1" ipv4.dns)"
+        echo "ipv4.ignore-auto-dns=$(nm_get "$1" ipv4.ignore-auto-dns)"
+        echo "ipv6.dns=$(nm_get "$1" ipv6.dns)"
+        echo "ipv6.ignore-auto-dns=$(nm_get "$1" ipv6.ignore-auto-dns)"
+    } > "$f"
+    chmod 600 "$f"
+}
+
+nm_on() {
+    local u changed=0 ok4 ok6
+    while IFS= read -r u; do
+        [ -n "$u" ] || continue
+        nm_save_orig "$u"
+        ok4=0; ok6=0
+        # One family at a time: profiles with ipv6.method=disabled reject DNS.
+        nmcli connection modify "$u" ipv4.dns "$PRESET_V4" ipv4.ignore-auto-dns yes >/dev/null 2>&1 && ok4=1
+        nmcli connection modify "$u" ipv6.dns "$PRESET_V6" ipv6.ignore-auto-dns yes >/dev/null 2>&1 && ok6=1
+        if [ "$ok4" -eq 0 ] && [ "$ok6" -eq 0 ]; then
+            rm -f "$NM_DATA/$u"
+            continue
+        fi
+        changed=$((changed + 1))
+        nm_reload "$u"
+    done < <(nm_profiles)
+    [ "$changed" -gt 0 ] || die "no NetworkManager profile could be configured (no Ethernet/Wi-Fi/mobile profiles?)"
+    info "Configured $changed NetworkManager profile(s)."
+}
+
+nm_restore_one() {   # UUID
+    local f="$NM_DATA/$1" k v
+    [ -f "$f" ] || return 0
+    while IFS='=' read -r k v; do
+        case "$k" in
+            ipv4.dns|ipv6.dns)
+                [[ "$v" =~ ^[0-9a-fA-F:.,\ ]*$ ]] || continue
+                nmcli connection modify "$1" "$k" "$v" >/dev/null 2>&1 || true ;;
+            ipv4.ignore-auto-dns|ipv6.ignore-auto-dns)
+                case "$v" in yes|no) nmcli connection modify "$1" "$k" "$v" >/dev/null 2>&1 || true ;; esac ;;
+        esac
+    done < "$f"
+    rm -f "$f"
+    nm_reload "$1"
+}
+
+nm_off() {
+    [ -d "$NM_DATA" ] || { info "No NetworkManager profiles were changed."; return 0; }
+    local f u n=0
+    for f in "$NM_DATA"/*; do
+        [ -f "$f" ] || continue
+        u="$(basename "$f")"
+        nm_restore_one "$u"
+        n=$((n + 1))
+    done
+    info "Restored $n NetworkManager profile(s)."
+}
+
+nm_effective_servers() {   # prints DNS servers of all connected physical devices
+    local dev type state
+    nmcli -t -f DEVICE,TYPE,STATE device 2>/dev/null | while IFS=: read -r dev type state; do
+        case "$type" in ethernet|wifi|gsm|cdma) ;; *) continue ;; esac
+        [ "$state" = connected ] || continue
+        nmcli -g IP4.DNS,IP6.DNS device show "$dev" 2>/dev/null | tr '|' '\n' | sed 's/\\:/:/g; s/^ *//; s/ *$//'
+    done | awk 'NF' | sort -u
+}
+
+# =====================================================================================
+#  Backend: systemd-resolved
+# =====================================================================================
+
+resolved_on() {
+    write_file "$DROPIN" "# Managed by cloudflare-switch - do not edit; remove with: cloudflare-switch off
+[Resolve]
+DNS=$PRESET_V4 $PRESET_V6
+Domains=~."
+    resolved_restart
+}
+resolved_off() {
+    rm -f "$DROPIN"
+    resolved_restart
+}
+resolved_restart() {
+    if [ "$TEST_MODE" -eq 1 ] && ! have systemctl; then return 0; fi
+    systemctl restart systemd-resolved >/dev/null 2>&1 \
+        || warn "could not restart systemd-resolved; run: sudo systemctl restart systemd-resolved"
+    sleep 1
+}
+resolved_effective_servers() {
+    resolvectl dns 2>/dev/null | awk -F': ' '/^Global:/ { n=split($2,a," "); for(i=1;i<=n;i++) print a[i] }' | sort -u
+}
+
+# =====================================================================================
+#  Backend: plain /etc/resolv.conf
+# =====================================================================================
+
+resolvconf_check() {
+    if [ -L "$RESOLV_CONF" ]; then
+        die "$RESOLV_CONF is a symlink to $(readlink -f "$RESOLV_CONF"): another service manages it, and none of the supported backends (NetworkManager, systemd-resolved) is running. Start one of them or pin --backend."
+    fi
+}
+resolvconf_on() {
+    resolvconf_check
+    mkdir -p "$DATA_DIR"
+    if [ ! -f "$RESOLV_ORIG" ] && [ -f "$RESOLV_CONF" ]; then
+        cp -p "$RESOLV_CONF" "$RESOLV_ORIG"
+    fi
+    local body="# Managed by cloudflare-switch - restore with: cloudflare-switch off" s
+    for s in $PRESET_V4 $PRESET_V6; do body="$body
+nameserver $s"; done
+    write_file "$RESOLV_CONF" "$body"
+}
+resolvconf_off() {
+    resolvconf_check
+    if [ -f "$RESOLV_ORIG" ]; then
+        cp -p "$RESOLV_ORIG" "$RESOLV_CONF.tmp.cs"
+        mv -f "$RESOLV_CONF.tmp.cs" "$RESOLV_CONF"
+        rm -f "$RESOLV_ORIG"
+    else
+        warn "no saved resolv.conf to restore; leaving $RESOLV_CONF as it is"
+    fi
+}
+resolvconf_effective_servers() {
+    [ -r "$RESOLV_CONF" ] && awk '$1=="nameserver"{print $2}' "$RESOLV_CONF" | sort -u || true
+}
+
+# --- dispatch ----------------------------------------------------------------------
+
+be_on()  { "${BACKEND}_on"; }
+be_off() { "${BACKEND}_off"; }
+be_effective_servers() { "${BACKEND}_effective_servers" 2>/dev/null || true; }
+
+# Is the saved preset really what the machine uses? -> yes | no | unknown
+effective_state() {
+    local want="$1" got s all_ok=1
+    got="$(be_effective_servers)"
+    [ -n "$got" ] || { echo unknown; return; }
+    # Every server the machine uses must be one of the preset's.
+    for s in $got; do
+        case " $PRESET_V4 $PRESET_V6 " in *" $s "*) ;; *) all_ok=0 ;; esac
+    done
+    if [ "$want" = on ]; then [ "$all_ok" -eq 1 ] && echo yes || echo no
+    else [ "$all_ok" -eq 1 ] && echo no || echo yes   # "off" is effective when we are NOT in use
+    fi
+}
+
+# --- legacy (v1) cleanup ----------------------------------------------------------------
+
+cleanup_legacy() {
+    if [ -f "$LEGACY_UNIT" ]; then
+        info "Removing the old v1 boot service (v2 does not need one)..."
+        if have systemctl && [ "$TEST_MODE" -eq 0 ]; then
+            systemctl disable --now cloudflare-switch-restore.service >/dev/null 2>&1 || true
+        fi
+        rm -f "$LEGACY_UNIT"
+        if have systemctl && [ "$TEST_MODE" -eq 0 ]; then systemctl daemon-reload >/dev/null 2>&1 || true; fi
+    fi
+}
+
+# --- commands -------------------------------------------------------------------------------
+
+cmd_on() {
+    local preset="" backend_arg=""
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --backend) [ "$#" -ge 2 ] || die "--backend needs a value"; backend_arg="$2"; shift 2 ;;
+            -*)        die "unknown option '$1'" ;;
+            *)         preset="$(canonical_preset "$1")"; [ -n "$preset" ] || die "unknown preset '$1' (family, malware, standard)"; shift ;;
+        esac
+    done
+    [ -n "$preset" ] || preset="$(saved_preset)"
+    load_preset "$preset"
+
+    need_root
+    acquire_lock
+    detect_backend "$backend_arg"
+    cleanup_legacy
+
+    local was_ok=0
+    if can_resolve; then was_ok=1; fi
+
+    info "Enabling $PRESET_LABEL via $BACKEND..."
+    # Switching preset while already on: undo first so originals stay intact.
+    be_on
+    flush_dns
+
+    if [ "$was_ok" -eq 1 ]; then
+        local ok=0
+        for _ in 1 2 3 4; do
+            if can_resolve; then ok=1; break; fi
+            sleep 2
+        done
+        if [ "$ok" -eq 0 ]; then
+            warn "DNS stopped working after the change - rolling back."
+            be_off || true
+            flush_dns
+            die "Cloudflare DNS is unreachable from this network (firewall or captive portal?). Nothing was changed."
+        fi
+    fi
+
+    write_file "$STATE_FILE" "on"
+    write_file "$PRESET_FILE" "$preset"
+    [ -n "$backend_arg" ] && [ "$backend_arg" != auto ] && write_file "$BACKEND_FILE" "$backend_arg"
+    echo
+    info "${C_GREEN}Cloudflare DNS is ON${C_RESET} ($preset)."
+    if [ "$preset" = family ]; then
+        info "Note: browsers using Secure DNS / DNS-over-HTTPS bypass system DNS entirely."
+    fi
+}
+
+cmd_off() {
+    local backend_arg=""
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --backend) [ "$#" -ge 2 ] || die "--backend needs a value"; backend_arg="$2"; shift 2 ;;
+            *) die "unknown argument '$1'" ;;
+        esac
+    done
+    need_root
+    acquire_lock
+    detect_backend "$backend_arg"
+    cleanup_legacy
+    info "Disabling Cloudflare DNS via $BACKEND..."
+    be_off
+    flush_dns
+    write_file "$STATE_FILE" "off"
+    echo
+    info "${C_GREEN}Cloudflare DNS is OFF${C_RESET} - your previous DNS settings are back."
+}
+
+cmd_sync() {
+    need_root
+    acquire_lock
+    detect_backend
+    if [ "$(saved_state)" = on ]; then
+        load_preset "$(saved_preset)"
+        info "Re-applying $PRESET_LABEL via $BACKEND..."
+        be_on
+        flush_dns
+        info "Done."
+    else
+        info "Filter is off; nothing to re-apply."
+    fi
+}
+
+cmd_status() {
+    local mode="text"
+    case "${1:-}" in
+        "") ;; --json) mode=json ;; --short) mode=short ;;
+        *) die "usage: $PROG_NAME status [--json|--short]" ;;
+    esac
+    detect_backend
+    local state preset eff servers
+    state="$(saved_state)"; preset="$(saved_preset)"
+    load_preset "$preset"
+    eff="$(effective_state "$state")"
+    servers="$(be_effective_servers | paste -sd' ' -)"
+
+    case "$mode" in
+        short)
+            if [ "$state" = on ]; then echo "on ($preset via $BACKEND, effective: $eff)"; else echo "off"; fi ;;
+        json)
+            local first=1 s
+            printf '{"schema":1,"version":"%s","state":"%s","preset":"%s","backend":"%s","effective":"%s","servers":[' \
+                "$VERSION" "$state" "$preset" "$BACKEND" "$eff"
+            for s in $servers; do
+                if [ "$first" -eq 0 ]; then printf ','; fi
+                first=0
+                printf '"%s"' "$s"
+            done
+            printf ']}\n' ;;
+        text)
+            echo "===== Cloudflare DNS filter ====="
+            if [ "$state" = on ]; then
+                echo "Filter    : ${C_GREEN}on${C_RESET} ($PRESET_LABEL)"
+            else
+                echo "Filter    : off"
+            fi
+            echo "Backend   : $BACKEND"
+            echo "In effect : $eff"
+            echo "DNS used  : ${servers:-unknown}"
+            if [ "$state" = on ] && [ "$eff" = no ]; then
+                echo "${C_YELLOW}Saved as ON but the machine uses other DNS servers -> sudo $PROG_NAME sync  (or: $PROG_NAME doctor)${C_RESET}"
+            fi ;;
+    esac
+}
+
+cmd_doctor() {
+    detect_backend
+    local problems=0 f
+    echo "===== cloudflare-switch doctor ====="
+    echo "Version : $VERSION"
+    echo "Backend : $BACKEND"
+    echo "Saved   : $(saved_state) ($(saved_preset))"
+    load_preset "$(saved_preset)"
+    echo "In use  : $(be_effective_servers | paste -sd' ' -)"
+    echo
+
+    echo "-- Name resolution:"
+    if can_resolve; then echo "  ok"; else echo "  ${C_RED}cannot resolve any test domain${C_RESET}"; problems=$((problems + 1)); fi
+
+    echo "-- Who else wants to manage DNS:"
+    local n=0
+    if [ "$BACKEND" = nm ] && resolved_running; then
+        echo "  NetworkManager + systemd-resolved (standard Fedora/Ubuntu setup) - fine."
+    fi
+    if [ "$BACKEND" = nm ] && have systemctl && [ "$(systemctl is-active systemd-networkd 2>/dev/null || true)" = active ]; then
+        echo "  ${C_YELLOW}NetworkManager AND systemd-networkd are both running - they can overwrite each other.${C_RESET}"
+        problems=$((problems + 1))
+    fi
+    # DNS= lines that this tool does not own (e.g. left over from v1 or hand-written)
+    local hit
+    for f in /etc/systemd/resolved.conf /etc/systemd/resolved.conf.d/*.conf /etc/systemd/network/*.network /etc/systemd/network/*.network.d/*.conf; do
+        [ -f "$f" ] || continue
+        [ "$f" = "$DROPIN" ] && continue
+        hit="$(grep -E '^[[:space:]]*(DNS|FallbackDNS)=[^[:space:]]' "$f" 2>/dev/null || true)"
+        if [ -n "$hit" ]; then
+            echo "  ${C_YELLOW}$f sets DNS servers that cloudflare-switch does not manage:${C_RESET}"
+            echo "$hit" | sed 's/^/      /'
+            n=$((n + 1))
+        fi
+    done
+    if [ -d /etc/systemd/network/.dns_switch_backups ]; then
+        echo "  ${C_YELLOW}Leftovers from cloudflare-switch v1: /etc/systemd/network/.dns_switch_backups${C_RESET}"
+        echo "      v2 does not use them. If you still have uncommented DNS= lines in your .network files,"
+        echo "      comment them out or restore the .bak copies, then run: sudo $PROG_NAME sync"
+        n=$((n + 1))
+    fi
+    if [ -f "$LEGACY_UNIT" ]; then
+        echo "  ${C_YELLOW}Old v1 boot service present; it is removed by '$PROG_NAME on|off'.${C_RESET}"
+        n=$((n + 1))
+    fi
+    [ "$n" -eq 0 ] && echo "  nothing found"
+    problems=$((problems + n))
+
+    if [ "$BACKEND" = nm ]; then
+        echo "-- NetworkManager profiles not covered (only matters while the filter is on):"
+        local u missing=0 name
+        if [ "$(saved_state)" = on ]; then
+            while IFS= read -r u; do
+                [ -n "$u" ] || continue
+                if [ ! -f "$NM_DATA/$u" ]; then
+                    name="$(nmcli -g connection.id connection show "$u" 2>/dev/null || echo "$u")"
+                    echo "  ${C_YELLOW}$name${C_RESET} -> run: sudo $PROG_NAME sync"
+                    missing=$((missing + 1))
+                fi
+            done < <(nm_profiles)
+        fi
+        [ "$missing" -eq 0 ] && echo "  none"
+        problems=$((problems + missing))
+    fi
+
+    if have social-switch; then
+        echo "-- /etc/hosts blocking (social-switch) is independent of DNS:"
+        echo "  see: social-switch status"
+    fi
+    echo
+    echo "${C_YELLOW}Important:${C_RESET} Firefox/Chrome 'Secure DNS' (DoH) ignores system DNS - turn it off for the filter to apply."
+    echo
+    if [ "$problems" -eq 0 ]; then echo "${C_GREEN}No problems found.${C_RESET}"; else echo "$problems problem(s) found."; fi
+}
+
+usage() {
+    cat <<EOF
+cloudflare-switch $VERSION - Cloudflare DNS filter on/off, on any Linux
+
+Usage: $PROG_NAME <command>
+
+  on [family|malware|standard] [--backend nm|resolved|resolvconf]
+                               Use Cloudflare DNS (default preset: family = 1.1.1.3)
+  off                          Restore the DNS you had before
+  status [--json|--short]      Saved state + whether it is really in effect
+  sync                         Re-apply the saved state (e.g. after joining a new network profile)
+  doctor                       Diagnose conflicts and leftovers
+  version                      Print version
+
+Aliases: enable = on, disable = off.
+Wording: here "on" = filter ACTIVE (social-switch's "on" means social media allowed).
+EOF
+}
+
+# --- main --------------------------------------------------------------------------------------
+
+ORIG_ARGS=("$@")
+cmd="${1:-status}"
+[ "$#" -gt 0 ] && shift || true
+case "$cmd" in
+    on|enable)        cmd_on "$@" ;;
+    off|disable)      cmd_off "$@" ;;
+    status|st)        cmd_status "$@" ;;
+    sync)             cmd_sync ;;
+    doctor)           cmd_doctor ;;
+    version|--version|-V) echo "cloudflare-switch $VERSION" ;;
+    help|--help|-h)   usage ;;
+    *)                usage >&2; exit 1 ;;
+esac

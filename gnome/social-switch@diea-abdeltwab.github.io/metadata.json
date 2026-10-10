@@ -1,0 +1,9 @@
+{
+  "uuid": "social-switch@diea-abdeltwab.github.io",
+  "name": "Social Switch",
+  "description": "Block or allow social media from the GNOME top bar.\n\nA popup with one tile per platform plus a master switch, backed by the social-switch command-line tool (hosts-file blocking). Every change asks for your password through polkit.",
+  "shell-version": ["45", "46", "47", "48", "49", "50"],
+  "settings-schema": "org.gnome.shell.extensions.social-switch",
+  "url": "https://github.com/diea-abdeltwab/social-switch-widget",
+  "version-name": "1.1.0"
+}
