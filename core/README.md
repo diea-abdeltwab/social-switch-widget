@@ -1,6 +1,23 @@
-# core — the two command-line tools
+[![social-switch core banner](https://capsule-render.vercel.app/api?type=waving&color=0:111214,100:5A1A1F&height=210&section=header&text=social-switch%20%C2%B7%20core&fontSize=42&fontColor=EDEDEC&animation=fadeIn&fontAlignY=36&desc=Two%20command-line%20tools%20that%20work%20on%20any%20Linux&descAlignY=55&descColor=C99BA0&descSize=16)](https://capsule-render.vercel.app)
 
-Everything else in this repository is a front end for these. They need only **Bash ≥ 4.4** and standard tools, and work on any Linux.
+[![Typing SVG](https://readme-typing-svg.herokuapp.com/?font=Fira+Code&weight=600&size=20&duration=3000&pause=800&color=EDEDEC&background=00000000&center=true&vCenter=true&width=700&lines=Two+CLIs.+Any+Linux.+Nothing+but+Bash.;Hosts-file+blocking+%2B+a+Cloudflare+DNS+filter%2C+no+conflicts.;Atomic+edits%2C+flock-serialised%2C+SELinux-aware.;Polkit-scoped+to+one+script.+Not+a+sudoers+rule.)](https://git.io/typing-svg)
+
+<p align="center">
+  <a href="https://www.gnu.org/software/bash/"><img src="https://img.shields.io/badge/Bash-4EAA25?style=for-the-badge&logo=gnu-bash&logoColor=white" alt="Bash"></a>
+  <a href="https://www.kernel.org/"><img src="https://img.shields.io/badge/Linux-any%20distro-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux"></a>
+  <a href="https://www.cloudflare.com/"><img src="https://img.shields.io/badge/Cloudflare-DNS%20filter-F38020?style=for-the-badge&logo=cloudflare&logoColor=white" alt="Cloudflare"></a>
+  <a href="../LICENSE"><img src="https://img.shields.io/badge/License-MIT-7A2E33?style=for-the-badge" alt="License"></a>
+</p>
+
+---
+
+## 📖 About
+
+Everything else in this repository is a front end for these two tools. They need only **Bash ≥ 4.4** and standard tools, and work on any Linux.
+
+---
+
+## 🚀 Installation
 
 ```bash
 ./install-core.sh              # /usr/local/bin/{social-switch,cloudflare-switch} + polkit policies
@@ -12,7 +29,7 @@ The installer shows the right package command for your distro (`dnf`, `apt`, `pa
 
 ---
 
-## social-switch (v2.2)
+## 🔒 social-switch (v2.2)
 
 Blocks social media system-wide by writing a clearly marked block into `/etc/hosts` (`0.0.0.0` and `::` for every domain, with and without `www.`).
 
@@ -61,7 +78,7 @@ social-switch doctor                 # diagnose
 
 ---
 
-## cloudflare-switch (v2.0)
+## ☁️ cloudflare-switch (v2.0)
 
 Turns a Cloudflare DNS filter on or off for the whole machine.
 
@@ -100,7 +117,7 @@ It never touches `/etc/hosts`.
 
 ---
 
-## Tests
+## 🧪 Tests
 
 ```bash
 bash tests/test_social_switch.sh        # as a normal user
@@ -109,9 +126,31 @@ bash tests/test_cloudflare_switch.sh    # as a normal user; fake nmcli / systemc
 
 Both honour a test-root hook (`SOCIAL_SWITCH_TEST_ROOT`, `CLOUDFLARE_SWITCH_TEST_ROOT`) that redirects every path into a temp directory. **The hook is ignored when running as root**, so an environment variable can never redirect a privileged run.
 
-## Security notes
+---
+
+## 🔐 Security notes
 
 - The polkit action authorises one absolute path; argument validation lives in the scripts (platform table, hostname regex, option-looking input rejected).
 - Run with `sudo`/`pkexec`, the environment is scrubbed, which is what makes the test hook safe.
 - The desktop front ends only execute the CLI from `/usr/local/bin` or `/usr/bin` (root-owned).
 - Browsers with Secure DNS / DoH bypass both `/etc/hosts` and system DNS. `doctor` reminds you.
+
+---
+
+## 📜 License
+
+Released under the [MIT License](../LICENSE).
+
+---
+
+### 👤 Author
+
+**Diea Abdeltwab** — Data Engineer · Software Engineer
+
+<p align="center">
+  <a href="https://www.linkedin.com/in/diea-abdeltwab/"><img src="https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white" alt="LinkedIn"></a>
+  <a href="https://github.com/diea-abdeltwab"><img src="https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub"></a>
+  <a href="mailto:diea.abdeltwab@gmail.com"><img src="https://img.shields.io/badge/Email-D14836?style=for-the-badge&logo=gmail&logoColor=white" alt="Email"></a>
+</p>
+
+[![footer](https://capsule-render.vercel.app/api?type=waving&color=0:5A1A1F,100:111214&height=100&section=footer)](https://capsule-render.vercel.app)
