@@ -167,3 +167,4 @@ Released under the [MIT License](LICENSE).
 </p>
 
 [![social-switch-widget footer](https://capsule-render.vercel.app/api?type=waving&color=0:5A1A1F,100:111214&height=100&section=footer)](https://capsule-render.vercel.app)
+
