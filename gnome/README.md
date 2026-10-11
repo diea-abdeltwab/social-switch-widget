@@ -2,7 +2,12 @@
 
 [![Typing SVG](https://readme-typing-svg.herokuapp.com/?font=Fira+Code&weight=600&size=20&duration=3000&pause=800&color=EDEDEC&background=00000000&center=true&vCenter=true&width=650&lines=Tap+a+platform%2C+it+flips.;Native+polkit+prompt+from+GNOME+Shell.;Updates+the+moment+/etc/hosts+changes.;No+blocking+logic+in+JavaScript.)](https://git.io/typing-svg)
 
-[![GNOME Shell](https://img.shields.io/badge/GNOME%20Shell-45%20%E2%80%93%2050-4A86CF?style=for-the-badge&logo=gnome&logoColor=white)](https://www.gnome.org/) [![GJS](https://img.shields.io/badge/GJS-ES%20modules-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)](https://gjs.guide/) [![Bash](https://img.shields.io/badge/CLI-Bash-4EAA25?style=for-the-badge&logo=gnu-bash&logoColor=white)](../core/social-switch) [![License](https://img.shields.io/badge/License-MIT-7A2E33?style=for-the-badge)](../LICENSE)
+<p align="center">
+  <a href="https://www.gnome.org/"><img src="https://img.shields.io/badge/GNOME%20Shell-45%20%E2%80%93%2050-4A86CF?style=for-the-badge&logo=gnome&logoColor=white" alt="GNOME Shell"></a>
+  <a href="https://gjs.guide/"><img src="https://img.shields.io/badge/GJS-ES%20modules-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black" alt="GJS"></a>
+  <a href="../core/social-switch"><img src="https://img.shields.io/badge/CLI-Bash-4EAA25?style=for-the-badge&logo=gnu-bash&logoColor=white" alt="Bash"></a>
+  <a href="../LICENSE"><img src="https://img.shields.io/badge/License-MIT-7A2E33?style=for-the-badge" alt="License"></a>
+</p>
 
 ---
 
@@ -284,6 +289,10 @@ Issues and PRs welcome — please include your GNOME Shell version (`gnome-shell
 
 **Diea Abdeltwab** — Data Engineer · Software Engineer
 
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/diea-abdeltwab/) [![GitHub](https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/diea-abdeltwab) [![Email](https://img.shields.io/badge/Email-D14836?style=for-the-badge&logo=gmail&logoColor=white)](mailto:dieaabdeltwab2024@gmail.com)
+<p align="center">
+  <a href="https://www.linkedin.com/in/diea-abdeltwab/"><img src="https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white" alt="LinkedIn"></a>
+  <a href="https://github.com/diea-abdeltwab"><img src="https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub"></a>
+  <a href="mailto:diea.abdeltwab@gmail.com"><img src="https://img.shields.io/badge/Email-D14836?style=for-the-badge&logo=gmail&logoColor=white" alt="Email"></a>
+</p>
 
 [![footer](https://capsule-render.vercel.app/api?type=waving&color=0:5A1A1F,100:111214&height=100&section=footer)](https://capsule-render.vercel.app)
