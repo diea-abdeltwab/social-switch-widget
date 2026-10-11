@@ -2,7 +2,12 @@
 
 [![Typing SVG](https://readme-typing-svg.herokuapp.com/?font=Fira+Code&weight=600&size=20&duration=3000&pause=800&color=EDEDEC&background=00000000&center=true&vCenter=true&width=650&lines=Tap+a+platform%2C+it+flips.+That's+the+whole+model.;Global+switch+%3D+bulk+action%2C+not+a+persistent+mode.;Real+mixed-state+indicator%2C+not+a+misleading+snap.;Polkit-scoped+to+one+script.+Not+a+sudoers+rule.)](https://git.io/typing-svg)
 
-[![Bash](https://img.shields.io/badge/Bash-4EAA25?style=for-the-badge&logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/) [![QML](https://img.shields.io/badge/QML%20%2F%20Quickshell-41CD52?style=for-the-badge&logo=qt&logoColor=white)](https://quickshell.outfoxxed.me/) [![Omarchy](https://img.shields.io/badge/Omarchy%204%20%22Quattro%22-1793D1?style=for-the-badge&logo=archlinux&logoColor=white)](https://omarchy.org/) [![License](https://img.shields.io/badge/License-MIT-7A2E33?style=for-the-badge)](https://github.com/diea-abdeltwab/social-switch-widget/blob/main/LICENSE)
+<p align="center">
+  <a href="https://www.gnu.org/software/bash/"><img src="https://img.shields.io/badge/Bash-4EAA25?style=for-the-badge&logo=gnu-bash&logoColor=white" alt="Bash"></a>
+  <a href="https://quickshell.outfoxxed.me/"><img src="https://img.shields.io/badge/QML%20%2F%20Quickshell-41CD52?style=for-the-badge&logo=qt&logoColor=white" alt="QML"></a>
+  <a href="https://omarchy.org/"><img src="https://img.shields.io/badge/Omarchy%204%20%22Quattro%22-1793D1?style=for-the-badge&logo=archlinux&logoColor=white" alt="Omarchy"></a>
+  <a href="https://github.com/diea-abdeltwab/social-switch-widget/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-7A2E33?style=for-the-badge" alt="License"></a>
+</p>
 
 ---
 
@@ -242,6 +247,10 @@ Released under the [MIT License](../LICENSE).
 
 **Diea Abdeltwab** — Data Engineer · Software Engineer
 
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/diea-abdeltwab/) [![GitHub](https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/diea-abdeltwab) [![Email](https://img.shields.io/badge/Email-D14836?style=for-the-badge&logo=gmail&logoColor=white)](mailto:dieaabdeltwab2024@gmail.com)
+<p align="center">
+  <a href="https://www.linkedin.com/in/diea-abdeltwab/"><img src="https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white" alt="LinkedIn"></a>
+  <a href="https://github.com/diea-abdeltwab"><img src="https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub"></a>
+  <a href="mailto:diea.abdeltwab@gmail.com"><img src="https://img.shields.io/badge/Email-D14836?style=for-the-badge&logo=gmail&logoColor=white" alt="Email"></a>
+</p>
 
 [![social-switch-widget footer](https://capsule-render.vercel.app/api?type=waving&color=0:5A1A1F,100:111214&height=100&section=footer)](https://capsule-render.vercel.app)
